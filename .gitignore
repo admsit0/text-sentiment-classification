@@ -1,2 +1,10 @@
 venv/
 *.json
+
+datasets/
+
+evaluacion/
+
+vectores/
+
+modelos/

@@ -106,14 +106,18 @@ class VectorRepresentation:
                 max_features=self.max_features,
                 min_df=2,  # Ignorar términos que aparecen en menos de 2 documentos
                 max_df=0.95,  # Ignorar términos que aparecen en más del 95% de documentos
-                sublinear_tf=True  # Aplicar escala logarítmica a TF
+                sublinear_tf=True,  # Aplicar escala logarítmica a TF
+                # --- MODIFICACIÓN: Reducir uso de memoria ---
+                dtype=np.float32
             )
         else:
             vectorizer = CountVectorizer(
                 ngram_range=ngram_range,
                 max_features=self.max_features,
                 min_df=2,
-                max_df=0.95
+                max_df=0.95,
+                # --- MODIFICACIÓN: Reducir uso de memoria ---
+                dtype=np.float32
             )
         
         # Ajustar y transformar
@@ -185,7 +189,8 @@ class VectorRepresentation:
             
             feature_matrix.append(feature_vector)
         
-        feature_matrix = np.array(feature_matrix)
+        # --- MODIFICACIÓN: Usar float32 ---
+        feature_matrix = np.array(feature_matrix, dtype=np.float32)
         
         # Normalizar características (StandardScaler)
         scaler = StandardScaler()
@@ -197,7 +202,9 @@ class VectorRepresentation:
         print(f"  Características extraídas: {len(numeric_features)}")
         print(f"  Dimensión del vector: {feature_matrix_scaled.shape[1]}")
         
-        return feature_matrix_scaled, numeric_features
+        # --- MODIFICACIÓN: Asegurar float32 de salida ---
+        # StandardScaler puede devolver float64, lo forzamos de nuevo
+        return feature_matrix_scaled.astype(np.float32), numeric_features
     
     def create_combined_representation(self, ngram_vectors, sentiment_vectors):
         """
@@ -222,6 +229,12 @@ class VectorRepresentation:
         return combined
 
 
+# -----------------------------------------------------------------
+# FUNCIÓN 'process_corpus_vectorization' MODIFICADA
+# Esta función ha sido reestructurada para evitar la MemoryError.
+# Ahora procesa y guarda los archivos secuencialmente 
+# en lugar de acumularlos en memoria.
+# -----------------------------------------------------------------
 def process_corpus_vectorization(input_file, output_dir, 
                                  ngram_configs=None,
                                  use_stemming=False,
@@ -278,12 +291,26 @@ def process_corpus_vectorization(input_file, output_dir,
         max_features=max_features
     )
     
-    # Diccionario para almacenar todas las representaciones
-    representations = {}
+    # Diccionario para almacenar el RESUMEN (no los datos)
+    representation_summary = {}
     
-    # 1. REPRESENTACIONES BASADAS EN N-GRAMAS
+    # 2. REPRESENTACIÓN BASADA EN CARACTERÍSTICAS DE SENTIMIENTO
+    # --- Se genera primero porque es pequeña y se reutiliza ---
     print("\n" + "="*60)
-    print("1. REPRESENTACIONES BASADAS EN N-GRAMAS")
+    print("2. REPRESENTACIÓN BASADA EN CARACTERÍSTICAS DE SENTIMIENTO")
+    print("="*60)
+    
+    sentiment_vectors, sentiment_feature_names = vec_gen.extract_sentiment_features_vector(corpus)
+    
+    # Guardar vectores de sentimiento inmediatamente
+    output_file_sentiment = os.path.join(output_dir, f'vectors_sentiment.npy')
+    np.save(output_file_sentiment, sentiment_vectors)
+    print(f"  ✓ Guardado: {output_file_sentiment} (shape: {sentiment_vectors.shape})")
+    representation_summary['sentiment'] = {'shape': sentiment_vectors.shape, 'dtype': str(sentiment_vectors.dtype)}
+
+    # 1. & 3. N-GRAMAS Y COMBINADAS (en un solo bucle)
+    print("\n" + "="*60)
+    print("1. & 3. N-GRAMAS Y REPRESENTACIONES COMBINADAS")
     print("="*60)
     
     for config in ngram_configs:
@@ -291,47 +318,42 @@ def process_corpus_vectorization(input_file, output_dir,
         name = config['name']
         use_tfidf = config.get('use_tfidf', True)
         
-        print(f"\nGenerando representación: {name}")
-        vectors = vec_gen.create_ngram_representation(
+        print(f"\nProcesando: {name}")
+        
+        # 1. CREAR N-GRAM
+        ngram_vectors = vec_gen.create_ngram_representation(
             texts, 
             ngram_range=ngram_range,
             use_tfidf=use_tfidf,
             vectorizer_name=name
         )
         
-        representations[f'ngram_{name}'] = vectors
+        # GUARDAR N-GRAM
+        output_file_ngram = os.path.join(output_dir, f'vectors_ngram_{name}.npy')
+        np.save(output_file_ngram, ngram_vectors)
+        print(f"  ✓ Guardado (ngram): {output_file_ngram} (shape: {ngram_vectors.shape})")
+        representation_summary[f'ngram_{name}'] = {'shape': ngram_vectors.shape, 'dtype': str(ngram_vectors.dtype)}
     
-    # 2. REPRESENTACIÓN BASADA EN CARACTERÍSTICAS DE SENTIMIENTO
-    print("\n" + "="*60)
-    print("2. REPRESENTACIÓN BASADA EN CARACTERÍSTICAS DE SENTIMIENTO")
-    print("="*60)
-    
-    sentiment_vectors, sentiment_feature_names = vec_gen.extract_sentiment_features_vector(corpus)
-    representations['sentiment'] = sentiment_vectors
-    
-    # 3. REPRESENTACIONES COMBINADAS
-    print("\n" + "="*60)
-    print("3. REPRESENTACIONES COMBINADAS")
-    print("="*60)
-    
-    for ngram_name in [config['name'] for config in ngram_configs]:
-        print(f"\nCombinando n-gramas ({ngram_name}) + sentimiento")
-        combined = vec_gen.create_combined_representation(
-            representations[f'ngram_{ngram_name}'],
+        # 3. CREAR COMBINADA
+        print(f"Combinando n-gramas ({name}) + sentimiento")
+        combined_vectors = vec_gen.create_combined_representation(
+            ngram_vectors,
             sentiment_vectors
         )
-        representations[f'combined_{ngram_name}_sentiment'] = combined
-    
-    # 4. GUARDAR REPRESENTACIONES
+        
+        # GUARDAR COMBINADA
+        output_file_combined = os.path.join(output_dir, f'vectors_combined_{name}_sentiment.npy')
+        np.save(output_file_combined, combined_vectors)
+        print(f"  ✓ Guardado (combined): {output_file_combined} (shape: {combined_vectors.shape})")
+        representation_summary[f'combined_{name}_sentiment'] = {'shape': combined_vectors.shape, 'dtype': str(combined_vectors.dtype)}
+
+        # En este punto, ngram_vectors y combined_vectors se liberarán de la memoria
+        # en la siguiente iteración del bucle.
+        
+    # 4. GUARDAR OTROS ARCHIVOS (Vectorizadores, Scalers, Metadatos)
     print("\n" + "="*60)
-    print("4. GUARDANDO REPRESENTACIONES")
+    print("4. GUARDANDO ARCHIVOS COMPLEMENTARIOS")
     print("="*60)
-    
-    # Guardar cada representación
-    for rep_name, rep_vectors in representations.items():
-        output_file = os.path.join(output_dir, f'vectors_{rep_name}.npy')
-        np.save(output_file, rep_vectors)
-        print(f"  ✓ Guardado: {output_file} (shape: {rep_vectors.shape})")
     
     # Guardar vectorizadores y scalers
     vectorizers_file = os.path.join(output_dir, 'vectorizers.pkl')
@@ -352,7 +374,8 @@ def process_corpus_vectorization(input_file, output_dir,
     
     # Guardar IDs y ratings para referencia
     metadata = {
-        'ids': [review.get('id', i) for i, review in enumerate(corpus)],
+        # 'ids': [review.get('id', i) for i, review in enumerate(corpus)], # 'id' no está en la E1
+        'game_ids': [review.get('game_id') for review in corpus],
         'ratings': [review.get('rating') for review in corpus],
         'num_reviews': len(corpus)
     }
@@ -368,10 +391,7 @@ def process_corpus_vectorization(input_file, output_dir,
         'remove_stopwords': remove_stopwords,
         'max_features': max_features,
         'ngram_configs': ngram_configs,
-        'representations': {
-            name: {'shape': vectors.shape, 'dtype': str(vectors.dtype)}
-            for name, vectors in representations.items()
-        }
+        'representations': representation_summary # Usar el resumen
     }
     config_file = os.path.join(output_dir, 'config.json')
     with open(config_file, 'w', encoding='utf-8') as f:
@@ -383,14 +403,15 @@ def process_corpus_vectorization(input_file, output_dir,
     print("RESUMEN DE REPRESENTACIONES GENERADAS")
     print("="*60)
     
-    print(f"\nTotal de representaciones: {len(representations)}")
+    print(f"\nTotal de representaciones: {len(representation_summary)}")
     print("\nDetalle:")
-    for name, vectors in representations.items():
-        print(f"  • {name:40s} → {vectors.shape}")
+    # Usar el resumen para mostrar los detalles
+    for name, info in sorted(representation_summary.items()):
+        print(f"  • {name:40s} → {info['shape']}")
     
     print(f"\n✓ Todos los archivos guardados en: {output_dir}")
     print("\nArchivos generados:")
-    print(f"  • {len(representations)} archivos .npy con vectores")
+    print(f"  • {len(representation_summary)} archivos .npy con vectores")
     print(f"  • vectorizers.pkl (vectorizadores TF-IDF/Count)")
     print(f"  • scalers.pkl (normalizadores)")
     print(f"  • sentiment_feature_names.json (nombres de características)")
