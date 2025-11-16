@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
-    classification_report, confusion_matrix, roc_auc_score
+    classification_report, confusion_matrix
 )
 from datetime import datetime
 import warnings
@@ -31,27 +31,24 @@ class ModelEvaluator:
     def load_test_data(self, dataset_dir):
         """
         Carga datos de test
-        
-        Args:
-            dataset_dir (str): Directorio con los datos
-            
-        Returns:
-            tuple: (X_test, y_test)
         """
+        print(f"    [LOGGER] Cargando 'test_X.npy' y 'test_y.npy' desde {dataset_dir}")
         X_test = np.load(os.path.join(dataset_dir, 'test_X.npy'))
         y_test = np.load(os.path.join(dataset_dir, 'test_y.npy'))
+        
+        # --- CORRECCIÓN ETIQUETAS: Convertir etiquetas a numérico ---
+        label_map = {'negative': 0, 'neutral': 1, 'positive': 2}
+        if not np.issubdtype(y_test.dtype, np.number):
+            print("    [LOGGER] ℹ Convirtiendo etiquetas de test a numérico (0=neg, 1=neu, 2=pos)...")
+            y_test = np.vectorize(label_map.get)(y_test)
+            
         return X_test, y_test
     
     def load_model(self, model_file):
         """
         Carga un modelo entrenado
-        
-        Args:
-            model_file (str): Ruta al archivo del modelo
-            
-        Returns:
-            dict: Información del modelo
         """
+        print(f"      [LOGGER] Cargando modelo desde {model_file}...")
         with open(model_file, 'rb') as f:
             model_info = pickle.load(f)
         return model_info
@@ -59,45 +56,40 @@ class ModelEvaluator:
     def evaluate_model(self, model_info, X_test, y_test):
         """
         Evalúa un modelo en el conjunto de test
-        
-        Args:
-            model_info (dict): Información del modelo
-            X_test (np.array): Características de test
-            y_test (np.array): Etiquetas de test
-            
-        Returns:
-            dict: Métricas de evaluación
         """
-        # Obtener el modelo
         model = model_info['best_estimator']
         scaler = model_info.get('scaler', None)
         
-        # Aplicar scaler si existe
         X_test_proc = X_test
         if scaler is not None:
-            X_test_proc = scaler.transform(X_test)
+            print("      [LOGGER] Aplicando scaler a los datos de test...")
+            # --- CORRECCIÓN MEMORIA: Forzar float32 ---
+            X_test_proc = scaler.transform(X_test).astype(np.float32)
         
-        # Predicciones
+        print("      [LOGGER] Realizando predicciones en el conjunto de test...")
         y_pred = model.predict(X_test_proc)
         
-        # Calcular métricas
+        print("      [LOGGER] Calculando métricas (Accuracy, Precision, Recall, F1)...")
         accuracy = accuracy_score(y_test, y_pred)
         precision_macro = precision_score(y_test, y_pred, average='macro', zero_division=0)
         recall_macro = recall_score(y_test, y_pred, average='macro', zero_division=0)
         f1_macro = f1_score(y_test, y_pred, average='macro', zero_division=0)
         
-        # Métricas por clase
-        precision_per_class = precision_score(y_test, y_pred, average=None, zero_division=0)
-        recall_per_class = recall_score(y_test, y_pred, average=None, zero_division=0)
-        f1_per_class = f1_score(y_test, y_pred, average=None, zero_division=0)
+        # --- CORRECCIÓN ETIQUETAS: Usar etiquetas numéricas ---
+        labels_numeric = np.array([0, 1, 2])
+        unique_labels = np.unique(y_test)
+        # Usar las etiquetas que realmente están en y_test para el reporte
+        present_labels = [l for l in labels_numeric if l in unique_labels]
+
+        precision_per_class = precision_score(y_test, y_pred, average=None, labels=present_labels, zero_division=0)
+        recall_per_class = recall_score(y_test, y_pred, average=None, labels=present_labels, zero_division=0)
+        f1_per_class = f1_score(y_test, y_pred, average=None, labels=present_labels, zero_division=0)
         
-        # Matriz de confusión
-        cm = confusion_matrix(y_test, y_pred)
+        print("      [LOGGER] Generando matriz de confusión...")
+        cm = confusion_matrix(y_test, y_pred, labels=labels_numeric)
         
-        # Classification report
-        report = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
+        report = classification_report(y_test, y_pred, labels=present_labels, target_names=['negative', 'neutral', 'positive'], output_dict=True, zero_division=0)
         
-        # Resultados
         results = {
             'accuracy': float(accuracy),
             'precision_macro': float(precision_macro),
@@ -105,15 +97,15 @@ class ModelEvaluator:
             'f1_macro': float(f1_macro),
             'precision_per_class': {
                 str(label): float(score) 
-                for label, score in zip(np.unique(y_test), precision_per_class)
+                for label, score in zip(present_labels, precision_per_class)
             },
             'recall_per_class': {
                 str(label): float(score)
-                for label, score in zip(np.unique(y_test), recall_per_class)
+                for label, score in zip(present_labels, recall_per_class)
             },
             'f1_per_class': {
                 str(label): float(score)
-                for label, score in zip(np.unique(y_test), f1_per_class)
+                for label, score in zip(present_labels, f1_per_class)
             },
             'confusion_matrix': cm.tolist(),
             'classification_report': report,
@@ -126,13 +118,8 @@ class ModelEvaluator:
     def plot_confusion_matrix(self, cm, labels, title, output_file):
         """
         Genera gráfica de matriz de confusión
-        
-        Args:
-            cm (np.array): Matriz de confusión
-            labels (list): Nombres de las clases
-            title (str): Título de la gráfica
-            output_file (str): Archivo de salida
         """
+        print(f"      [LOGGER] Guardando gráfica de Matriz de Confusión en {output_file}...")
         plt.figure(figsize=(8, 6))
         sns.heatmap(
             cm, annot=True, fmt='d', cmap='Blues',
@@ -149,12 +136,6 @@ class ModelEvaluator:
     def create_comparison_table(self, all_results):
         """
         Crea tabla comparativa de todos los modelos
-        
-        Args:
-            all_results (dict): Resultados de todos los modelos
-            
-        Returns:
-            pd.DataFrame: Tabla comparativa
         """
         rows = []
         
@@ -185,12 +166,8 @@ class ModelEvaluator:
     def plot_model_comparison(self, df, output_file):
         """
         Genera gráfica comparativa de modelos
-        
-        Args:
-            df (pd.DataFrame): Tabla comparativa
-            output_file (str): Archivo de salida
         """
-        # Top 10 modelos por F1-score
+        print(f"  [LOGGER] Guardando gráfica de Comparación de Modelos en {output_file}...")
         df_top = df.head(10).copy()
         df_top['Model_Rep'] = df_top['Modelo'] + '\n(' + df_top['Representación'].str.replace('_', ' ') + ')'
         
@@ -222,12 +199,8 @@ class ModelEvaluator:
     def plot_representation_comparison(self, df, output_file):
         """
         Compara rendimiento por tipo de representación
-        
-        Args:
-            df (pd.DataFrame): Tabla comparativa
-            output_file (str): Archivo de salida
         """
-        # Agrupar por representación y calcular promedios
+        print(f"  [LOGGER] Guardando gráfica de Comparación de Representaciones en {output_file}...")
         rep_stats = df.groupby('Representación').agg({
             'Accuracy': 'mean',
             'Precision (macro)': 'mean',
@@ -235,7 +208,6 @@ class ModelEvaluator:
             'F1-score (macro)': 'mean'
         }).reset_index()
         
-        # Ordenar por F1-score
         rep_stats = rep_stats.sort_values('F1-score (macro)', ascending=False)
         
         fig, ax = plt.subplots(figsize=(12, 6))
@@ -270,12 +242,8 @@ class ModelEvaluator:
     def generate_latex_table(self, df, output_file, top_n=10):
         """
         Genera tabla en formato LaTeX
-        
-        Args:
-            df (pd.DataFrame): Tabla comparativa
-            output_file (str): Archivo de salida
-            top_n (int): Número de mejores modelos a incluir
         """
+        print(f"  [LOGGER] Guardando tabla LaTeX en {output_file}...")
         df_top = df.head(top_n).copy()
         
         # Formatear valores
@@ -297,17 +265,9 @@ class ModelEvaluator:
 def evaluate_all_models(datasets_dir, models_dir, output_dir):
     """
     Evalúa todos los modelos entrenados
-    
-    Args:
-        datasets_dir (str): Directorio con datasets del Ejercicio 3
-        models_dir (str): Directorio con modelos del Ejercicio 4
-        output_dir (str): Directorio de salida para resultados
-        
-    Returns:
-        dict: Resultados de evaluación
     """
     print("="*60)
-    print("EVALUACIÓN DE MODELOS EN CONJUNTO DE TEST")
+    print("EVALUACIÓN DE MODELOS EN CONJUNTO DE TEST (E5)")
     print("="*60)
     
     os.makedirs(output_dir, exist_ok=True)
@@ -321,7 +281,7 @@ def evaluate_all_models(datasets_dir, models_dir, output_dir):
         if os.path.isdir(os.path.join(models_dir, d))
     ]
     
-    print(f"\nRepresentaciones encontradas: {len(representations)}")
+    print(f"\n[LOGGER] Representaciones encontradas en '{models_dir}': {len(representations)}")
     
     # Evaluar cada representación
     for i, rep_name in enumerate(representations, 1):
@@ -335,17 +295,17 @@ def evaluate_all_models(datasets_dir, models_dir, output_dir):
         os.makedirs(rep_output_dir, exist_ok=True)
         
         # Cargar datos de test
-        print("\nCargando datos de test...")
+        print(f"\n  [LOGGER] Cargando datos de test para {rep_name}...")
         try:
             X_test, y_test = evaluator.load_test_data(rep_datasets_dir)
-            print(f"  Test: {X_test.shape}, {len(y_test)} etiquetas")
+            print(f"    [LOGGER] Datos de test cargados: {X_test.shape}, {len(y_test)} etiquetas")
         except Exception as e:
-            print(f"  ✗ Error cargando datos: {e}")
+            print(f"    ✗ [LOGGER] Error cargando datos: {e}")
             continue
         
         # Evaluar cada modelo
         model_files = [f for f in os.listdir(rep_models_dir) if f.endswith('.pkl')]
-        print(f"\nModelos a evaluar: {len(model_files)}")
+        print(f"\n  [LOGGER] Modelos a evaluar: {len(model_files)}")
         
         rep_results = {}
         
@@ -353,7 +313,7 @@ def evaluate_all_models(datasets_dir, models_dir, output_dir):
             model_name = model_file.replace('.pkl', '')
             model_path = os.path.join(rep_models_dir, model_file)
             
-            print(f"\n  Evaluando: {model_name}")
+            print(f"\n    [LOGGER] Evaluando: {model_name}")
             
             try:
                 # Cargar modelo
@@ -372,13 +332,13 @@ def evaluate_all_models(datasets_dir, models_dir, output_dir):
                 }
                 
                 # Mostrar métricas principales
-                print(f"    Accuracy:  {test_metrics['accuracy']:.4f}")
-                print(f"    Precision: {test_metrics['precision_macro']:.4f}")
-                print(f"    Recall:    {test_metrics['recall_macro']:.4f}")
-                print(f"    F1-score:  {test_metrics['f1_macro']:.4f}")
+                print(f"      [LOGGER] Accuracy:  {test_metrics['accuracy']:.4f}")
+                print(f"      [LOGGER] Precision: {test_metrics['precision_macro']:.4f}")
+                print(f"      [LOGGER] Recall:    {test_metrics['recall_macro']:.4f}")
+                print(f"      [LOGGER] F1-score:  {test_metrics['f1_macro']:.4f}")
                 
                 # Generar matriz de confusión
-                labels = sorted(np.unique(y_test))
+                labels = ['negative', 'neutral', 'positive']
                 cm = np.array(test_metrics['confusion_matrix'])
                 cm_file = os.path.join(rep_output_dir, f'{model_name}_confusion_matrix.png')
                 evaluator.plot_confusion_matrix(
@@ -388,16 +348,17 @@ def evaluate_all_models(datasets_dir, models_dir, output_dir):
                 )
                 
             except Exception as e:
-                print(f"    ✗ Error: {e}")
+                print(f"      [LOGGER] ✗ Error: {e}")
                 rep_results[model_name] = {'error': str(e)}
         
         all_results[rep_name] = rep_results
         
         # Guardar resultados de la representación
         rep_results_file = os.path.join(rep_output_dir, 'evaluation_results.json')
+        print(f"\n  [LOGGER] Guardando resultados de {rep_name} en {rep_results_file}...")
         with open(rep_results_file, 'w', encoding='utf-8') as f:
             json.dump(rep_results, f, indent=2)
-        print(f"\n  ✓ Resultados guardados: {rep_results_file}")
+        print(f"  ✓ [LOGGER] Resultados guardados: {rep_results_file}")
     
     return all_results
 
@@ -405,20 +366,15 @@ def evaluate_all_models(datasets_dir, models_dir, output_dir):
 def generate_report(all_results, output_dir, datasets_dir):
     """
     Genera informe completo de evaluación
-    
-    Args:
-        all_results (dict): Resultados de evaluación
-        output_dir (str): Directorio de salida
-        datasets_dir (str): Directorio con datasets
     """
     print("\n" + "="*60)
-    print("GENERACIÓN DE INFORME")
+    print("GENERACIÓN DE INFORME (E5)")
     print("="*60)
     
     evaluator = ModelEvaluator()
     
     # Crear tabla comparativa
-    print("\nGenerando tabla comparativa...")
+    print("\n[LOGGER] Generando tabla comparativa...")
     df = evaluator.create_comparison_table(all_results)
     
     # Guardar tabla en CSV
@@ -432,7 +388,7 @@ def generate_report(all_results, output_dir, datasets_dir):
     print(f"  ✓ Tabla LaTeX: {latex_file}")
     
     # Generar gráficas
-    print("\nGenerando gráficas comparativas...")
+    print("\n[LOGGER] Generando gráficas comparativas...")
     
     # Comparación de modelos
     models_plot = os.path.join(output_dir, 'models_comparison.png')
@@ -449,15 +405,15 @@ def generate_report(all_results, output_dir, datasets_dir):
     print("\n" + "="*60)
     print("MEJOR MODELO")
     print("="*60)
-    print(f"\nModelo: {best_model_row['Modelo']}")
-    print(f"Representación: {best_model_row['Representación']}")
-    print(f"F1-score (macro): {best_model_row['F1-score (macro)']:.4f}")
-    print(f"Accuracy: {best_model_row['Accuracy']:.4f}")
-    print(f"Precision (macro): {best_model_row['Precision (macro)']:.4f}")
-    print(f"Recall (macro): {best_model_row['Recall (macro)']:.4f}")
+    print(f"\n[LOGGER] Modelo: {best_model_row['Modelo']}")
+    print(f"[LOGGER] Representación: {best_model_row['Representación']}")
+    print(f"[LOGGER] F1-score (macro): {best_model_row['F1-score (macro)']:.4f}")
+    print(f"[LOGGER] Accuracy: {best_model_row['Accuracy']:.4f}")
+    print(f"[LOGGER] Precision (macro): {best_model_row['Precision (macro)']:.4f}")
+    print(f"[LOGGER] Recall (macro): {best_model_row['Recall (macro)']:.4f}")
     
     # Generar resumen ejecutivo
-    print("\nGenerando resumen ejecutivo...")
+    print("\n[LOGGER] Generando resumen ejecutivo...")
     summary = {
         'fecha_evaluacion': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'num_representaciones': len(all_results),
@@ -497,7 +453,7 @@ def generate_report(all_results, output_dir, datasets_dir):
         labeling_config = {}
     
     # Generar informe en Markdown
-    print("\nGenerando informe en Markdown...")
+    print("\n[LOGGER] Generando informe en Markdown...")
     markdown_file = os.path.join(output_dir, 'informe_resultados.md')
     generate_markdown_report(df, best_model_row, all_results, labeling_config, markdown_file)
     print(f"  ✓ Informe Markdown: {markdown_file}")
@@ -506,13 +462,6 @@ def generate_report(all_results, output_dir, datasets_dir):
 def generate_markdown_report(df, best_model, all_results, labeling_config, output_file):
     """
     Genera informe en formato Markdown
-    
-    Args:
-        df (pd.DataFrame): Tabla comparativa
-        best_model (pd.Series): Información del mejor modelo
-        all_results (dict): Resultados completos
-        labeling_config (dict): Configuración de etiquetado
-        output_file (str): Archivo de salida
     """
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write("# Informe de Resultados - Práctica 2\n")
@@ -616,11 +565,6 @@ def generate_markdown_report(df, best_model, all_results, labeling_config, outpu
 def main(datasets_dir, models_dir, output_dir):
     """
     Función principal de evaluación
-    
-    Args:
-        datasets_dir (str): Directorio con datasets del Ejercicio 3
-        models_dir (str): Directorio con modelos del Ejercicio 4
-        output_dir (str): Directorio de salida
     """
     print("="*60)
     print("EVALUACIÓN Y GENERACIÓN DE INFORME - EJERCICIO 5")
@@ -633,16 +577,16 @@ def main(datasets_dir, models_dir, output_dir):
     all_results_file = os.path.join(output_dir, 'all_results.json')
     with open(all_results_file, 'w', encoding='utf-8') as f:
         json.dump(all_results, f, indent=2)
-    print(f"\n✓ Todos los resultados guardados: {all_results_file}")
+    print(f"\n✓ [LOGGER] Todos los resultados guardados: {all_results_file}")
     
     # Generar informe completo
     generate_report(all_results, output_dir, datasets_dir)
     
     print("\n" + "="*60)
-    print("¡EVALUACIÓN COMPLETADA!")
+    print("¡EVALUACIÓN (E5) COMPLETADA!")
     print("="*60)
     print(f"\nResultados guardados en: {output_dir}")
-    print("\nArchivos generados:")
+    print("\n[LOGGER] Archivos generados:")
     print("  • all_results.json - Resultados completos")
     print("  • comparison_table.csv - Tabla comparativa")
     print("  • comparison_table.tex - Tabla en LaTeX")
