@@ -1,9 +1,3 @@
-"""
-Práctica 2 - Ejercicio 1: Extracción de características lingüísticas
-Procesamiento de Lenguaje Natural
-Universidad Autónoma de Madrid
-"""
-
 import json
 import nltk
 from nltk.corpus import sentiwordnet as swn
@@ -12,9 +6,9 @@ from nltk import pos_tag, word_tokenize
 from collections import Counter
 import re
 
-# Descargar recursos necesarios (ejecutar solo la primera vez)
+
 def download_resources():
-    """Descarga los recursos necesarios de NLTK"""
+    """Descarga los recursos necesarios de NLTK (solo 1st time)"""
     resources = [
         'sentiwordnet',
         'wordnet',
@@ -544,9 +538,6 @@ class FeatureExtractor:
         return features
 
 
-# -----------------------------------------------------------------
-# FUNCIÓN 'process_corpus' MODIFICADA
-# -----------------------------------------------------------------
 def process_corpus(corpus_file, output_file):
     """
     Procesa un corpus de reseñas y extrae características
@@ -568,27 +559,17 @@ def process_corpus(corpus_file, output_file):
     print(f"Procesando reseñas...")
     processed_reviews = []
     
-    # Iterar sobre los juegos en el corpus
     for game_id, game_data in corpus["games"].items():
         
-        # <--- CORRECCIÓN 1: INICIO
-        # Comprobar si la clave 'comments' existe ANTES de acceder a ella.
-        # Esto soluciona el 'KeyError: comments' que experimentaste.
         if "comments" not in game_data or not game_data["comments"]:
-            continue  # Si no hay clave 'comments' o está vacía, saltar este juego
-        # <--- CORRECCIÓN 1: FIN
+            continue
             
-        # Si llegamos aquí, es seguro que game_data["comments"] existe
         for i, review in enumerate(game_data["comments"]):
             text = review.get("comment", "")
             rating = review.get("rating", None)
             
-            # <--- CORRECCIÓN 2: INICIO
-            # Filtrar reseñas que no son útiles para la clasificación
-            # (aquellas sin texto o sin rating)
             if not text or rating is None:
-                continue # Saltar esta reseña
-            # <--- CORRECCIÓN 2: FIN
+                continue
 
             features = extractor.extract_all_features(text)
             
@@ -606,19 +587,14 @@ def process_corpus(corpus_file, output_file):
         json.dump(processed_reviews, f, indent=2, ensure_ascii=False)
     
     print("¡Extracción de características completada!")
-    # Este contador ahora solo incluirá reseñas con texto y rating
     print(f"Total de reseñas procesadas (con texto y rating): {len(processed_reviews)}")
     
-    # Mostrar estadísticas
     print("\n--- Estadísticas de características extraídas ---")
     avg_features = {}
     
-    # <--- CORRECCIÓN 3: INICIO
-    # Añadir comprobación por si ninguna reseña pasa los filtros
     if not processed_reviews:
         print("No se encontraron reseñas válidas para calcular estadísticas.")
         return
-    # <--- CORRECCIÓN 3: FIN
 
     for review in processed_reviews:
         for key, value in review['features'].items():
@@ -629,19 +605,14 @@ def process_corpus(corpus_file, output_file):
     
     print("\nPromedios de características numéricas:")
     for key, values in sorted(avg_features.items()):
-        # <--- CORRECCIÓN 4: INICIO
-        # Evitar división por cero si una lista de valores está vacía
         if values:
             print(f"  {key}: {sum(values)/len(values):.4f}")
         else:
             print(f"  {key}: 0.0000")
-        # <--- CORRECCIÓN 4: FIN
 
 
 if __name__ == "__main__":
-    # Ejemplo de uso
-    # Ajustar las rutas según la estructura de archivos
-    CORPUS_INPUT = "bgg_corpus_processed.json"  # Corpus de la Práctica 1
+    CORPUS_INPUT = "bgg_corpus_processed.json"  # Corpus P1
     CORPUS_OUTPUT = "corpus_con_features.json"  # Corpus con características
     
     process_corpus(CORPUS_INPUT, CORPUS_OUTPUT)

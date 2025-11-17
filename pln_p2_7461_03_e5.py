@@ -1,9 +1,3 @@
-"""
-Práctica 2 - Ejercicio 5: Evaluación de algoritmos de clasificación y elaboración de informe
-Procesamiento de Lenguaje Natural
-Universidad Autónoma de Madrid
-"""
-
 import json
 import numpy as np
 import pickle
@@ -36,7 +30,6 @@ class ModelEvaluator:
         X_test = np.load(os.path.join(dataset_dir, 'test_X.npy'))
         y_test = np.load(os.path.join(dataset_dir, 'test_y.npy'))
         
-        # --- CORRECCIÓN ETIQUETAS: Convertir etiquetas a numérico ---
         label_map = {'negative': 0, 'neutral': 1, 'positive': 2}
         if not np.issubdtype(y_test.dtype, np.number):
             print("    [LOGGER] ℹ Convirtiendo etiquetas de test a numérico (0=neg, 1=neu, 2=pos)...")
@@ -63,7 +56,6 @@ class ModelEvaluator:
         X_test_proc = X_test
         if scaler is not None:
             print("      [LOGGER] Aplicando scaler a los datos de test...")
-            # --- CORRECCIÓN MEMORIA: Forzar float32 ---
             X_test_proc = scaler.transform(X_test).astype(np.float32)
         
         print("      [LOGGER] Realizando predicciones en el conjunto de test...")
@@ -75,10 +67,9 @@ class ModelEvaluator:
         recall_macro = recall_score(y_test, y_pred, average='macro', zero_division=0)
         f1_macro = f1_score(y_test, y_pred, average='macro', zero_division=0)
         
-        # --- CORRECCIÓN ETIQUETAS: Usar etiquetas numéricas ---
         labels_numeric = np.array([0, 1, 2])
         unique_labels = np.unique(y_test)
-        # Usar las etiquetas que realmente están en y_test para el reporte
+        # Usar las etiquetas en y_test para report
         present_labels = [l for l in labels_numeric if l in unique_labels]
 
         precision_per_class = precision_score(y_test, y_pred, average=None, labels=present_labels, zero_division=0)
@@ -417,7 +408,7 @@ def generate_report(all_results, output_dir, datasets_dir):
     print(f"[LOGGER] Precision (macro): {best_model_row['Precision (macro)']:.4f}")
     print(f"[LOGGER] Recall (macro): {best_model_row['Recall (macro)']:.4f}")
     
-    # Generar resumen ejecutivo
+    # Generar resumen
     print("\n[LOGGER] Generando resumen ejecutivo...")
     summary = {
         'fecha_evaluacion': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
@@ -457,7 +448,7 @@ def generate_report(all_results, output_dir, datasets_dir):
     else:
         labeling_config = {}
     
-    # Generar informe en Markdown
+    # Generar informe
     print("\n[LOGGER] Generando informe en Markdown...")
     markdown_file = os.path.join(output_dir, 'informe_resultados.md')
     generate_markdown_report(df, best_model_row, all_results, labeling_config, markdown_file)

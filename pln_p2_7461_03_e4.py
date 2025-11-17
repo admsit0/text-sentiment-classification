@@ -1,13 +1,3 @@
-"""
-Práctica 2 - Ejercicio 4: Construcción de modelos de clasificación (PARALELIZADO)
-Procesamiento de Lenguaje Natural
-Universidad Autónoma de Madrid
-
--- REFACTORIZADO PARA FLUJO DE TRABAJO "TASK POOL" NO BLOQUEANTE --
--- VERSIÓN LIGERA CON GRIDSEARCH Y 4 MODELOS --
--- AÑADIDA COMPROBACIÓN DE EXISTENCIA PARA OMITIR TAREAS COMPLETADAS --
-"""
-
 import json
 import numpy as np
 import pickle
@@ -16,7 +6,6 @@ import argparse
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.svm import SVC, LinearSVC
 from sklearn.ensemble import RandomForestClassifier
-# Eliminado: LogisticRegression
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from joblib import Parallel, delayed
@@ -24,11 +13,6 @@ import time
 import warnings
 warnings.filterwarnings('ignore')
 
-# Eliminado: XGBoost (se asume que no se usa)
-
-
-# Tamaño de la muestra para modelos extremadamente lentos (SVM RBF)
-FAST_MODE_SAMPLE_SIZE = 5000
 
 
 class ModelTrainer:
@@ -45,7 +29,6 @@ class ModelTrainer:
     def get_model_configs(self):
         """
         Define las configuraciones de modelos y sus hiperparámetros
-        (Versión LIGERA con GridSearch)
         """
         configs = {
             'multinomial_nb': {
@@ -55,13 +38,11 @@ class ModelTrainer:
                     'alpha': [0.5, 1.0], 
                     'fit_prior': [True]
                 },
-                'search_type': 'grid', # CAMBIO: GridSearch
-                # 'n_iter' se ignora
+                'search_type': 'grid',
                 'requires_positive': True,
                 'requires_scaling': False,
                 'fast_mode_subsample': False
             },
-            # 'logistic_regression' ELIMINADO
             'svm_linear': {
                 'name': 'SVM (LinearSVC)',
                 'model': LinearSVC(
@@ -74,7 +55,7 @@ class ModelTrainer:
                     'C': [0.1, 1], 
                     'class_weight': [None, 'balanced']
                 },
-                'search_type': 'grid', # CAMBIO: GridSearch
+                'search_type': 'grid',
                 'requires_positive': False,
                 'requires_scaling': True,
                 'fast_mode_subsample': False
@@ -91,7 +72,7 @@ class ModelTrainer:
                     'C': [1, 10], 
                     'gamma': ['scale', 0.01], 
                 },
-                'search_type': 'grid', # CAMBIO: GridSearch
+                'search_type': 'grid',
                 'requires_positive': False,
                 'requires_scaling': True,
                 'fast_mode_subsample': True
@@ -109,31 +90,26 @@ class ModelTrainer:
                     'min_samples_split': [2, 5],
                     'min_samples_leaf': [1, 4], 
                 },
-                'search_type': 'grid', # CAMBIO: GridSearch
+                'search_type': 'grid',
                 'requires_positive': False,
                 'requires_scaling': False,
                 'fast_mode_subsample': False
             }
-            # 'xgboost' ELIMINADO
         }
         
         return configs
     
-    # --- CORRECCIÓN DE MEMORIA: Forzar salida a float32 ---
     def ensure_positive_values(self, X):
         """Asegura que todos los valores son positivos (para Multinomial NB)"""
         if np.any(X < 0):
             scaler = MinMaxScaler()
-            # Aplicar scaler y forzar de vuelta a float32
             X_scaled = scaler.fit_transform(X).astype(np.float32)
             return X_scaled, scaler
-        # --- CORRECCIÓN DE MEMORIA: Asegurar float32 ---
         return X.astype(np.float32), None
 
-    # --- CORRECCIÓN DE MEMORIA: Forzar salida a float32 ---
     def train_model(self, model_name, X_train, y_train, X_val=None, y_val=None,
                    use_validation=True, verbose=True, cv_n_jobs=-1,
-                   cv_verbose=0): # <-- LOGGER AVANZADO
+                   cv_verbose=0):
         """Entrena un modelo con búsqueda de hiperparámetros"""
         
         configs = self.get_model_configs()
@@ -157,42 +133,25 @@ class ModelTrainer:
                 print("  [LOGGER] ℹ Modelo requiere valores positivos, aplicando MinMaxScaler...")
             X_train_proc, scaler = self.ensure_positive_values(X_train)
             if X_val is not None and scaler is not None:
-                # Aplicar scaler y forzar de vuelta a float32
                 X_val_proc = scaler.transform(X_val).astype(np.float32)
                 
         elif config.get('requires_scaling', False):
             if verbose:
                 print("  [LOGGER] ℹ Modelo requiere escalado, aplicando StandardScaler...")
             scaler = StandardScaler()
-            # Aplicar scaler y forzar de vuelta a float32
             X_train_proc = scaler.fit_transform(X_train).astype(np.float32)
             if X_val is not None:
-                # Aplicar scaler y forzar de vuelta a float32
                 X_val_proc = scaler.transform(X_val).astype(np.float32)
         
-        if config.get('fast_mode_subsample', False) and len(y_train) > FAST_MODE_SAMPLE_SIZE:
-            if verbose:
-                print(f"  [LOGGER] ⚠ ¡FAST MODE! Submuestreando de {len(y_train)} a {FAST_MODE_SAMPLE_SIZE} para la búsqueda.")
-            
-            np.random.seed(self.random_state)
-            indices = np.random.choice(len(y_train), FAST_MODE_SAMPLE_SIZE, replace=False)
-            
-            X_train_proc = X_train_proc[indices]
-            y_train_proc = y_train[indices]
-            
-            if verbose:
-                print(f"  [LOGGER] Datos de búsqueda: {X_train_proc.shape}")
-
         scoring = 'f1_macro'
         cv = 5
         search_n_jobs = cv_n_jobs
-        
-        # --- LOGGER AVANZADO: Se pasa 'cv_verbose' a GridSearchCV ---
+
         if config['search_type'] == 'grid':
             search = GridSearchCV(
                 config['model'], config['params'], cv=cv, scoring=scoring,
                 n_jobs=search_n_jobs, 
-                verbose=cv_verbose, # <-- AQUÍ
+                verbose=cv_verbose,
                 return_train_score=True,
                 error_score='raise', pre_dispatch='2*n_jobs'
             )
@@ -200,7 +159,7 @@ class ModelTrainer:
             search = RandomizedSearchCV(
                 config['model'], config['params'], n_iter=config.get('n_iter', 20),
                 cv=cv, scoring=scoring, n_jobs=search_n_jobs, 
-                verbose=cv_verbose, # <-- AQUÍ
+                verbose=cv_verbose,
                 random_state=self.random_state, return_train_score=True,
                 error_score='raise', pre_dispatch='2*n_jobs'
             )
@@ -244,9 +203,6 @@ class ModelTrainer:
         
         return results
 
-# -----------------------------------------------------------------
-# FUNCIÓN "WORKER" MODIFICADA
-# -----------------------------------------------------------------
 def process_task(task_info, datasets_dir, output_dir, use_validation, 
                  random_state, cv_verbose):
     """
@@ -254,35 +210,26 @@ def process_task(task_info, datasets_dir, output_dir, use_validation,
     Carga datos, entrena y guarda el .pkl.
     """
     
-    # --- 1. Extraer info de la tarea ---
     task_id, total_tasks, rep_name, model_name = task_info
     start_time = time.time()
     
-    # --- INICIO DE LA MODIFICACIÓN: Comprobar si el archivo ya existe ---
-    
-    # Construir la ruta de salida esperada
     rep_output_dir = os.path.join(output_dir, rep_name)
     model_file = os.path.join(rep_output_dir, f'{model_name}.pkl')
     
-    # Comprobar si el archivo ya existe
+
     if os.path.exists(model_file):
-        print(f"\n[TAREA {task_id}/{total_tasks}] 🟡 OMITIDA: El archivo '{model_file}' ya existe.")
-        # Devolver un resultado "skipped" para que el resumen lo ignore
+        print(f"\n[TAREA {task_id}/{total_tasks}] OMITIDA: El archivo '{model_file}' ya existe.")
         return (rep_name, model_name, {'status': 'skipped', 'file': model_file})
     
-    # --- FIN DE LA MODIFICACIÓN ---
-
     
-    print(f"\n[TAREA {task_id}/{total_tasks}] 🔥 INICIADA: Modelo '{model_name}' en '{rep_name}'")
+    print(f"\n[TAREA {task_id}/{total_tasks}] INICIADA: Modelo '{model_name}' en '{rep_name}'")
     
     try:
-        # --- 2. Cargar datos (E3) ---
         print(f"  [TAREA {task_id}/{total_tasks}] [LOGGER] Cargando datos para '{rep_name}'...")
         rep_datasets_dir = os.path.join(datasets_dir, rep_name)
         X_train = np.load(os.path.join(rep_datasets_dir, 'train_X.npy'))
         y_train = np.load(os.path.join(rep_datasets_dir, 'train_y.npy'))
         
-        # Convertir etiquetas (para XGBoost, etc.)
         label_map = {'negative': 0, 'neutral': 1, 'positive': 2}
         if not np.issubdtype(y_train.dtype, np.number):
             y_train = np.vectorize(label_map.get)(y_train)
@@ -297,18 +244,16 @@ def process_task(task_info, datasets_dir, output_dir, use_validation,
         
         print(f"  [TAREA {task_id}/{total_tasks}] [LOGGER] Datos cargados: Train {X_train.shape}")
 
-        # --- 3. Entrenar (E4) ---
         print(f"  [TAREA {task_id}/{total_tasks}] [LOGGER] Iniciando búsqueda de hiperparámetros...")
         trainer = ModelTrainer(random_state=random_state, n_jobs=1)
         result = trainer.train_model(
             model_name, X_train, y_train, X_val, y_val, 
             use_validation, 
-            verbose=True, # Activar logger propio para que imprima parámetros
-            cv_n_jobs=1,   # CRÍTICO: No anidar paralelismo
-            cv_verbose=cv_verbose # Pasar el logger avanzado
+            verbose=True,
+            cv_n_jobs=1,   # No anidar paralelismo
+            cv_verbose=cv_verbose
         )
         
-        # --- 4. Guardar .pkl (E4) ---
         os.makedirs(rep_output_dir, exist_ok=True)
         
         print(f"  [TAREA {task_id}/{total_tasks}] [LOGGER] Guardando modelo optimizado en {model_file}...")
@@ -320,7 +265,6 @@ def process_task(task_info, datasets_dir, output_dir, use_validation,
         
         print(f"✅ [TAREA {task_id}/{total_tasks}] COMPLETADA ({duration:.1f}s): Guardado '{model_file}'")
         
-        # Devolver el resultado para el resumen final
         return (rep_name, model_name, result)
         
     except Exception as e:
@@ -331,9 +275,6 @@ def process_task(task_info, datasets_dir, output_dir, use_validation,
         return (rep_name, model_name, {'error': str(e)})
 
 
-# -----------------------------------------------------------------
-# FUNCIÓN 'main' MODIFICADA
-# -----------------------------------------------------------------
 def main(datasets_dir, output_dir, representations=None, models=None,
          use_validation=True, random_state=42, n_jobs=-1,
          cv_verbose=0):
@@ -347,7 +288,6 @@ def main(datasets_dir, output_dir, representations=None, models=None,
     
     os.makedirs(output_dir, exist_ok=True)
     
-    # --- 1. Definir todas las representaciones ---
     available_reps = [
         d for d in os.listdir(datasets_dir)
         if os.path.isdir(os.path.join(datasets_dir, d))
@@ -357,7 +297,6 @@ def main(datasets_dir, output_dir, representations=None, models=None,
     else:
         representations = [r for r in representations if r in available_reps]
     
-    # --- 2. Definir todos los modelos ---
     temp_trainer = ModelTrainer()
     available_models = list(temp_trainer.get_model_configs().keys())
     if models is None:
@@ -369,7 +308,6 @@ def main(datasets_dir, output_dir, representations=None, models=None,
     print(f"\n[LOGGER] Modelos a entrenar: {len(models)}")
     for model in models: print(f"  • {model}")
     
-    # --- 3. Crear la lista de tareas ---
     tasks = []
     task_id = 1
     for rep_name in representations:
@@ -379,17 +317,15 @@ def main(datasets_dir, output_dir, representations=None, models=None,
             
     print(f"\n[LOGGER] Total de tareas a ejecutar: {len(tasks)}")
     
-    # Determinar el número de workers (hilos)
     if n_jobs == -1:
         num_workers = os.cpu_count() or 1
     else:
         num_workers = n_jobs
-    print(f"[LOGGER] ⚡ Iniciando pool de {num_workers} workers...")
+    print(f"[LOGGER] Iniciando pool de {num_workers} workers...")
     
     if cv_verbose > 0:
-        print(f"📢 [LOGGER AVANZADO] Nivel de verbosidad de CV: {cv_verbose}")
+        print(f"📢 [LOGGER] Nivel de verbosidad de CV: {cv_verbose}")
         
-    # --- 4. Ejecutar el pool de tareas paralelo ---
     start_time_total = time.time()
     
     results_list = Parallel(n_jobs=num_workers, backend='threading', verbose=0)(
@@ -402,20 +338,17 @@ def main(datasets_dir, output_dir, representations=None, models=None,
     
     end_time_total = time.time()
     print(f"\n[LOGGER] ----------------------------------------------------")
-    print(f"[LOGGER] 🏁 Pool de tareas completado en {(end_time_total - start_time_total) / 60:.2f} minutos.")
+    print(f"[LOGGER] Pool de tareas completado en {(end_time_total - start_time_total) / 60:.2f} minutos.")
     print(f"[LOGGER] ----------------------------------------------------")
 
-    # --- 5. Generar resúmenes (post-procesamiento) ---
     print("\n[LOGGER] Generando archivos 'training_summary.json'...")
     
-    # Agrupar resultados por representación
     all_results = {}
     for rep_name, model_name, result in results_list:
         if rep_name not in all_results:
             all_results[rep_name] = {}
         all_results[rep_name][model_name] = result
     
-    # Escribir un resumen por cada representación
     for rep_name, models_results in all_results.items():
         summary = {
             'representation': rep_name,
@@ -423,9 +356,7 @@ def main(datasets_dir, output_dir, representations=None, models=None,
         }
         for model_name, result in models_results.items():
             
-            # --- INICIO DE LA MODIFICACIÓN: Ignorar 'skipped' y 'error' ---
             if 'error' not in result and 'status' not in result:
-            # --- FIN DE LA MODIFICACIÓN ---
             
                 summary['models'][model_name] = {
                     'display_name': result['display_name'],
@@ -474,7 +405,6 @@ if __name__ == "__main__":
         default=None,
         help='Representaciones específicas a procesar (por defecto: todas)'
     )
-    # --- CAMBIO: Actualizadas las choices ---
     parser.add_argument(
         '--models',
         nargs='+',
@@ -501,7 +431,6 @@ if __name__ == "__main__":
         help='Número de workers paralelos (hilos) (-1 = todos los cores)'
     )
     
-    # --- LOGGER AVANZADO: Nuevo argumento ---
     parser.add_argument(
         '--cv-verbose',
         type=int,

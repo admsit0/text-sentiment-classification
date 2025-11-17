@@ -1,9 +1,3 @@
-"""
-Práctica 2 - Ejercicio 3: Creación de ficheros de entrenamiento, validación y test
-Procesamiento de Lenguaje Natural
-Universidad Autónoma de Madrid
-"""
-
 import json
 import numpy as np
 import pandas as pd
@@ -482,7 +476,6 @@ def process_dataset_creation(vectors_dir, output_dir,
 
 
 if __name__ == "__main__":
-    # Configurar argumentos de línea de comandos
     parser = argparse.ArgumentParser(
         description='Crea datasets de entrenamiento, validación y test'
     )
@@ -550,7 +543,6 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    # Ejecutar procesamiento
     process_dataset_creation(
         vectors_dir=args.vectors_dir,
         output_dir=args.output_dir,

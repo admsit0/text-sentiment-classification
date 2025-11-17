@@ -1,9 +1,3 @@
-"""
-Práctica 2 - Ejercicio 2: Generación de representaciones vectoriales
-Procesamiento de Lenguaje Natural
-Universidad Autónoma de Madrid
-"""
-
 import json
 import numpy as np
 import pickle
@@ -14,9 +8,8 @@ from nltk.corpus import stopwords
 from nltk.stem import PorterStemmer, WordNetLemmatizer
 import argparse
 
-# Descargar recursos necesarios
 def download_resources():
-    """Descarga los recursos necesarios de NLTK"""
+    """Descarga los recursos necesarios de NLTK (solo 1st time)"""
     try:
         nltk.download('stopwords', quiet=True)
         nltk.download('wordnet', quiet=True)
@@ -107,7 +100,6 @@ class VectorRepresentation:
                 min_df=2,  # Ignorar términos que aparecen en menos de 2 documentos
                 max_df=0.95,  # Ignorar términos que aparecen en más del 95% de documentos
                 sublinear_tf=True,  # Aplicar escala logarítmica a TF
-                # --- MODIFICACIÓN: Reducir uso de memoria ---
                 dtype=np.float32
             )
         else:
@@ -116,7 +108,6 @@ class VectorRepresentation:
                 max_features=self.max_features,
                 min_df=2,
                 max_df=0.95,
-                # --- MODIFICACIÓN: Reducir uso de memoria ---
                 dtype=np.float32
             )
         
@@ -189,7 +180,6 @@ class VectorRepresentation:
             
             feature_matrix.append(feature_vector)
         
-        # --- MODIFICACIÓN: Usar float32 ---
         feature_matrix = np.array(feature_matrix, dtype=np.float32)
         
         # Normalizar características (StandardScaler)
@@ -202,7 +192,6 @@ class VectorRepresentation:
         print(f"  Características extraídas: {len(numeric_features)}")
         print(f"  Dimensión del vector: {feature_matrix_scaled.shape[1]}")
         
-        # --- MODIFICACIÓN: Asegurar float32 de salida ---
         # StandardScaler puede devolver float64, lo forzamos de nuevo
         return feature_matrix_scaled.astype(np.float32), numeric_features
     
@@ -229,12 +218,6 @@ class VectorRepresentation:
         return combined
 
 
-# -----------------------------------------------------------------
-# FUNCIÓN 'process_corpus_vectorization' MODIFICADA
-# Esta función ha sido reestructurada para evitar la MemoryError.
-# Ahora procesa y guarda los archivos secuencialmente 
-# en lugar de acumularlos en memoria.
-# -----------------------------------------------------------------
 def process_corpus_vectorization(input_file, output_dir, 
                                  ngram_configs=None,
                                  use_stemming=False,
@@ -255,7 +238,6 @@ def process_corpus_vectorization(input_file, output_dir,
     """
     import os
     
-    # Crear directorio de salida si no existe
     os.makedirs(output_dir, exist_ok=True)
     
     # Configuraciones por defecto de n-gramas
@@ -270,10 +252,8 @@ def process_corpus_vectorization(input_file, output_dir,
     print("GENERACIÓN DE REPRESENTACIONES VECTORIALES")
     print("="*60)
     
-    # Descargar recursos
     download_resources()
-    
-    # Cargar corpus con características
+
     print(f"\nCargando corpus desde {input_file}...")
     with open(input_file, 'r', encoding='utf-8') as f:
         corpus = json.load(f)
@@ -372,9 +352,8 @@ def process_corpus_vectorization(input_file, output_dir,
         json.dump(sentiment_feature_names, f, indent=2)
     print(f"  ✓ Guardado: {sentiment_names_file}")
     
-    # Guardar IDs y ratings para referencia
+    # Guardar ratings para referencia
     metadata = {
-        # 'ids': [review.get('id', i) for i, review in enumerate(corpus)], # 'id' no está en la E1
         'game_ids': [review.get('game_id') for review in corpus],
         'ratings': [review.get('rating') for review in corpus],
         'num_reviews': len(corpus)
@@ -398,7 +377,7 @@ def process_corpus_vectorization(input_file, output_dir,
         json.dump(config_info, f, indent=2)
     print(f"  ✓ Guardado: {config_file}")
     
-    # 5. RESUMEN FINAL
+    # Resumen
     print("\n" + "="*60)
     print("RESUMEN DE REPRESENTACIONES GENERADAS")
     print("="*60)
@@ -424,7 +403,6 @@ def process_corpus_vectorization(input_file, output_dir,
 
 
 if __name__ == "__main__":
-    # Configurar argumentos de línea de comandos
     parser = argparse.ArgumentParser(
         description='Genera representaciones vectoriales de reseñas'
     )
@@ -464,7 +442,6 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    # Ejecutar procesamiento
     process_corpus_vectorization(
         input_file=args.input,
         output_dir=args.output_dir,
