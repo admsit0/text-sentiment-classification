@@ -96,16 +96,17 @@ class ModelEvaluator:
             'recall_macro': float(recall_macro),
             'f1_macro': float(f1_macro),
             'precision_per_class': {
+                # Mapear 0, 1, 2 a 'negative', 'neutral', 'positive' para el JSON
                 str(label): float(score) 
-                for label, score in zip(present_labels, precision_per_class)
+                for label, score in zip(['negative', 'neutral', 'positive'], precision_per_class)
             },
             'recall_per_class': {
                 str(label): float(score)
-                for label, score in zip(present_labels, recall_per_class)
+                for label, score in zip(['negative', 'neutral', 'positive'], recall_per_class)
             },
             'f1_per_class': {
                 str(label): float(score)
-                for label, score in zip(present_labels, f1_per_class)
+                for label, score in zip(['negative', 'neutral', 'positive'], f1_per_class)
             },
             'confusion_matrix': cm.tolist(),
             'classification_report': report,
@@ -141,7 +142,7 @@ class ModelEvaluator:
         
         for rep_name, models in all_results.items():
             for model_name, result in models.items():
-                if 'error' in result:
+                if 'error' in result or 'status' in result:
                     continue
                 
                 row = {
@@ -401,6 +402,10 @@ def generate_report(all_results, output_dir, datasets_dir):
     print(f"  ✓ Comparación de representaciones: {reps_plot}")
     
     # Identificar mejor modelo
+    if df.empty:
+        print("\n✗ [LOGGER] ¡ERROR! No se encontraron resultados válidos para generar el informe.")
+        return
+        
     best_model_row = df.iloc[0]
     print("\n" + "="*60)
     print("MEJOR MODELO")
@@ -480,7 +485,7 @@ def generate_markdown_report(df, best_model, all_results, labeling_config, outpu
             
             if 'distribution' in labeling_config:
                 dist = labeling_config['distribution']
-                f.write("Distribución de clases:\n\n")
+                f.write("Distribución de clases (antes del balanceo):\n\n")
                 f.write(f"- Positivas: {dist.get('positive', 'N/A')}\n")
                 f.write(f"- Neutras: {dist.get('neutral', 'N/A')}\n")
                 f.write(f"- Negativas: {dist.get('negative', 'N/A')}\n\n")
@@ -585,7 +590,7 @@ def main(datasets_dir, models_dir, output_dir):
     print("\n" + "="*60)
     print("¡EVALUACIÓN (E5) COMPLETADA!")
     print("="*60)
-    print(f"\nResultados guardados en: {output_dir}")
+    print(f"\n[LOGGER] Resultados guardados en: {output_dir}")
     print("\n[LOGGER] Archivos generados:")
     print("  • all_results.json - Resultados completos")
     print("  • comparison_table.csv - Tabla comparativa")

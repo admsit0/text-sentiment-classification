@@ -5,6 +5,7 @@ Universidad Autónoma de Madrid
 
 -- REFACTORIZADO PARA FLUJO DE TRABAJO "TASK POOL" NO BLOQUEANTE --
 -- VERSIÓN LIGERA CON GRIDSEARCH Y 4 MODELOS --
+-- AÑADIDA COMPROBACIÓN DE EXISTENCIA PARA OMITIR TAREAS COMPLETADAS --
 """
 
 import json
@@ -244,7 +245,7 @@ class ModelTrainer:
         return results
 
 # -----------------------------------------------------------------
-# NUEVA FUNCIÓN "WORKER" PARA EL POOL DE TAREAS
+# FUNCIÓN "WORKER" MODIFICADA
 # -----------------------------------------------------------------
 def process_task(task_info, datasets_dir, output_dir, use_validation, 
                  random_state, cv_verbose):
@@ -256,6 +257,21 @@ def process_task(task_info, datasets_dir, output_dir, use_validation,
     # --- 1. Extraer info de la tarea ---
     task_id, total_tasks, rep_name, model_name = task_info
     start_time = time.time()
+    
+    # --- INICIO DE LA MODIFICACIÓN: Comprobar si el archivo ya existe ---
+    
+    # Construir la ruta de salida esperada
+    rep_output_dir = os.path.join(output_dir, rep_name)
+    model_file = os.path.join(rep_output_dir, f'{model_name}.pkl')
+    
+    # Comprobar si el archivo ya existe
+    if os.path.exists(model_file):
+        print(f"\n[TAREA {task_id}/{total_tasks}] 🟡 OMITIDA: El archivo '{model_file}' ya existe.")
+        # Devolver un resultado "skipped" para que el resumen lo ignore
+        return (rep_name, model_name, {'status': 'skipped', 'file': model_file})
+    
+    # --- FIN DE LA MODIFICACIÓN ---
+
     
     print(f"\n[TAREA {task_id}/{total_tasks}] 🔥 INICIADA: Modelo '{model_name}' en '{rep_name}'")
     
@@ -287,17 +303,13 @@ def process_task(task_info, datasets_dir, output_dir, use_validation,
         result = trainer.train_model(
             model_name, X_train, y_train, X_val, y_val, 
             use_validation, 
-            verbose=True, # <-- CAMBIO: activar logger propio para que imprima parámetros
-            cv_n_jobs=1,   # <-- CRÍTICO: No anidar paralelismo
-            cv_verbose=cv_verbose # <-- Pasar el logger avanzado
+            verbose=True, # Activar logger propio para que imprima parámetros
+            cv_n_jobs=1,   # CRÍTICO: No anidar paralelismo
+            cv_verbose=cv_verbose # Pasar el logger avanzado
         )
         
         # --- 4. Guardar .pkl (E4) ---
-        rep_output_dir = os.path.join(output_dir, rep_name)
         os.makedirs(rep_output_dir, exist_ok=True)
-        
-        # Este es el nombre de archivo "significativo"
-        model_file = os.path.join(rep_output_dir, f'{model_name}.pkl')
         
         print(f"  [TAREA {task_id}/{total_tasks}] [LOGGER] Guardando modelo optimizado en {model_file}...")
         with open(model_file, 'wb') as f:
@@ -320,7 +332,7 @@ def process_task(task_info, datasets_dir, output_dir, use_validation,
 
 
 # -----------------------------------------------------------------
-# FUNCIÓN 'main' REESCRITA PARA EL POOL DE TAREAS
+# FUNCIÓN 'main' MODIFICADA
 # -----------------------------------------------------------------
 def main(datasets_dir, output_dir, representations=None, models=None,
          use_validation=True, random_state=42, n_jobs=-1,
@@ -410,7 +422,11 @@ def main(datasets_dir, output_dir, representations=None, models=None,
             'models': {}
         }
         for model_name, result in models_results.items():
-            if 'error' not in result:
+            
+            # --- INICIO DE LA MODIFICACIÓN: Ignorar 'skipped' y 'error' ---
+            if 'error' not in result and 'status' not in result:
+            # --- FIN DE LA MODIFICACIÓN ---
+            
                 summary['models'][model_name] = {
                     'display_name': result['display_name'],
                     'best_params': result['best_params'],
