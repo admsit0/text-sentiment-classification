@@ -35,8 +35,8 @@ class ModelTrainer:
                 'name': 'Multinomial Naive Bayes',
                 'model': MultinomialNB(),
                 'params': {
-                    'alpha': [0.5, 1.0], 
-                    'fit_prior': [True]
+                    'alpha': [0.5, 1.0, 3.0], 
+                    'fit_prior': [False, True]
                 },
                 'search_type': 'grid',
                 'requires_positive': True,
@@ -47,12 +47,12 @@ class ModelTrainer:
                 'name': 'SVM (LinearSVC)',
                 'model': LinearSVC(
                     random_state=self.random_state,
-                    max_iter=50,
+                    max_iter=500,
                     dual='auto',
                     tol=1e-3
                 ),
                 'params': {
-                    'C': [0.1, 1], 
+                    'C': [0.01, 0.1, 1, 10], 
                     'class_weight': [None, 'balanced']
                 },
                 'search_type': 'grid',
@@ -69,7 +69,7 @@ class ModelTrainer:
                     cache_size=500
                 ),
                 'params': {
-                    'C': [1, 10], 
+                    'C': [0.01, 0.1, 1, 10], 
                     'gamma': ['scale', 0.01], 
                 },
                 'search_type': 'grid',
@@ -85,8 +85,8 @@ class ModelTrainer:
                     warm_start=False
                 ),
                 'params': {
-                    'n_estimators': [100], 
-                    'max_depth': [10, None], 
+                    'n_estimators': [20, 60, 80, 100], 
+                    'max_depth': [3, 7, 10, None], 
                     'min_samples_split': [2, 5],
                     'min_samples_leaf': [1, 4], 
                 },
@@ -263,7 +263,7 @@ def process_task(task_info, datasets_dir, output_dir, use_validation,
         end_time = time.time()
         duration = end_time - start_time
         
-        print(f"✅ [TAREA {task_id}/{total_tasks}] COMPLETADA ({duration:.1f}s): Guardado '{model_file}'")
+        print(f"[TAREA {task_id}/{total_tasks}] COMPLETADA ({duration:.1f}s): Guardado '{model_file}'")
         
         return (rep_name, model_name, result)
         
